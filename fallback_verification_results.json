@@ -1,0 +1,31 @@
+{
+  "timestamp": "2026-04-30T14:19:38.522212",
+  "verification_time_seconds": 0.3235917091369629,
+  "config": {
+    "num_nodes": 4,
+    "cpu_limit": 0.85,
+    "mem_limit": 0.85,
+    "rt_limit": 950
+  },
+  "results": {
+    "all_theorems_proved": false,
+    "theorems": {
+      "safe_area_nodes_always_safe": {
+        "status": "PROVED",
+        "message": "THEOREM 1 PROVED: All _safe_area() nodes satisfy safety constraints"
+      },
+      "delay_action_always_safe": {
+        "status": "UNKNOWN",
+        "message": "Solver returned: unsat"
+      },
+      "fallback_always_safe": {
+        "status": "PROVED",
+        "message": "THEOREM 3 PROVED: Fallback always has a safe action available (delay is always safe)"
+      },
+      "no_constraint_violation_after_deployment": {
+        "status": "PROVED",
+        "message": "THEOREM 4 PROVED: No constraint violations after safe deployment"
+      }
+    }
+  }
+}

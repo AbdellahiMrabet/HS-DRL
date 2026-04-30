@@ -1,0 +1,14 @@
+figures/
+__pycache__/
+client-deployment.yaml
+disk-metrics-daemonset.yaml
+server-deployment.yaml
+training_flow.txt
+architecture.txt
+log.txt
+complete_working_benchmark.py
+lightweight_results.png
+benchmark_figures/
+benchmark_results/
+results/
+.docker/
