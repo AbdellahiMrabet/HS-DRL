@@ -190,8 +190,9 @@ PPO_LRT_MEM_UPPER = 0.85          # Memory upper threshold
 # ============================================================
 
 COLORS = {
-    'DRS': '#E74C3C',
+    'PPO-LRT': '#E74C3C',
     'RLSK': '#3498DB',
     'EPRS': '#1ABC9C',
-    'HS-DRL': '#F39C12'
+    'HS-DRL': '#F39C12',
+    'HS-DRL_BEFORE_AFTER': '#F39C12'
 }

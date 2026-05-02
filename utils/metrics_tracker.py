@@ -75,7 +75,6 @@ class MetricsTracker:
                     self.per_node_response_time[name] = []
                 if latest_response_time:
                     response_time = latest_response_time.get(name, 200)
-                print(f'response time in tracker {response_time} of node {node.get('name')}')
                 self.per_node_response_time[name].append(response_time)
         
         if nodes_data:

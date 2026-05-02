@@ -52,21 +52,12 @@ class ResultsPlotter:
             'node4': 'node4'
         }
         
-        return node_mapping.get(node_name, node_name.upper())
+        return node_mapping.get(node_name, node_name.lower())
     
     def plot_learning_curves_rewards(self, data):
         """Plot episode rewards - separate figure"""
         plt.figure(figsize=(12, 6))
-        eprs_rewards = 0
-        rlsk_rewards = 0
-        hs_hdr_rewards = 0
         for name, episodes in data.items():
-            if name == 'EPRS':
-                eprs_rewards = sum([e.get('total_reward') for e in episodes if name == 'EPRS' and 'total_reward' in e])
-            elif name == 'RLSK':
-                rlsk_rewards = sum([e.get('total_reward') for e in episodes if name == 'RLSK' and 'total_reward' in e])
-            elif name == 'HS_HDR':
-                hs_hdr_rewards = sum([e.get('total_reward') for e in episodes if name == 'HS_HDR' and 'total_reward' in e])
             if not episodes:
                 continue
             try:
@@ -224,8 +215,10 @@ class ResultsPlotter:
                 count = 0
                 for e in episodes:
                     count += 1
+                    if name.lower() == 'hsdrl' and e.get('z3_before_safety_rate') is not None:
+                        total += e.get('z3_before_safety_rate') 
                     total += e.get('safety_compliance_rate')
-                #val = episodes[-1].get('safety_compliance_rate')
+                print('safety rate for', total, name)
                 safety_rates.append(total / count)
             else:
                 safety_rates.append(0)
@@ -260,7 +253,9 @@ class ResultsPlotter:
             total = 0
             for e in episodes:
                 #print('episode', e)
-                val = e.get('projections')
+                val = e.get('projections') \
+                    if e.get('projections') is not None else e.get('z3_unsafe_prevented') \
+                    if e.get('z3_unsafe_prevented') is not None else 0
                 if val is not None:
                     total += val
             violations.append(total)
@@ -278,7 +273,6 @@ class ResultsPlotter:
         plt.savefig(os.path.join(self.plots_dir, 'constraint_violations_comparison.png'), dpi=150)
         plt.close()
         print("  ✓ Saved: constraint_violations_comparison.png")
-
 
     def plot_safety_comparison(self, data):
         """Legacy method - calls the two separate methods for backward compatibility"""
@@ -299,9 +293,10 @@ class ResultsPlotter:
             cum_violations = []
             total = 0
             for e in episodes:
-                val = e.get('constraint_violations')
-                if val is not None:
-                    total += val
+                val = e.get('constraint_violations') \
+                    if e.get('constraint_violations') is not None else e.get('z3_unsafe_prevented') \
+                    if e.get('z3_unsafe_prevented') is not None else 0
+                total += val
                 cum_violations.append(val)
             
             color = self.colors.get(name.split('_')[0], self.default_color)
@@ -434,56 +429,86 @@ class ResultsPlotter:
             plt.close()
             print(f"  ✓ Saved: {name}_per_node_mem.png (found {len(node_keys)} nodes)")
     
-    def plot_per_node_load_balance(self, data):
-        fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+    def plot_cpu_load_balance(self, data):
+        """Plot CPU imbalance load across agents as a standalone figure."""
+        fig, ax = plt.subplots(figsize=(8, 5))
         names = list(data.keys())
         colors = [self.colors.get(n, self.default_color) for n in names]
         
         cpu_variances = []
-        mem_variances = []
         for episodes in data.values():
             if not episodes:
-                cpu_variances.append(0); mem_variances.append(0)
+                cpu_variances.append(0)
                 continue
-            last = episodes[-1]
             
+            # Find CPU keys
             cpu_keys = []
             for pattern in ['_avg_cpu', '_cpu_avg', '_cpu']:
-                keys = [k for k in last.keys() if pattern in k.lower()]
+                keys = [k for episode in episodes for k in episode.keys() if pattern in k.lower()]
                 if keys:
                     cpu_keys = keys
                     break
             
+            cpu_vals = [episode.get(k, 0) if episode.get(k) is not None else 0 
+                        for episode in episodes for k in cpu_keys]
+            
+            cpu_variances.append(np.var(cpu_vals) if cpu_vals else 0)
+        
+        bars = ax.bar(names, cpu_variances, color=colors)
+        for name in names:
+            print(f'cpu variances for {name}: {cpu_variances[names.index(name)]:.1f}')
+        
+        ax.set_ylabel('CPU Variance')
+        ax.set_title('CPU Imbalance Load')
+        for bar, val in zip(bars, cpu_variances):
+            ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 1, 
+                    f'{val:.1f}', ha='center', va='bottom', fontsize=9)
+        
+        ax.grid(True, alpha=0.3, axis='y')
+        
+        plt.tight_layout()
+        plt.savefig(os.path.join(self.plots_dir, 'cpu_imbalance_load.png'), dpi=150)
+        plt.close()
+        print("  ✓ Saved: cpu_imbalance_load.png")
+
+    def plot_memory_load_balance(self, data):
+        """Plot Memory imbalance load across agents as a standalone figure."""
+        fig, ax = plt.subplots(figsize=(8, 5))
+        names = list(data.keys())
+        colors = [self.colors.get(n, self.default_color) for n in names]
+        
+        mem_variances = []
+        for episodes in data.values():
+            if not episodes:
+                mem_variances.append(0)
+                continue
+            
+            # Find Memory keys
             mem_keys = []
             for pattern in ['_avg_mem', '_mem_avg', '_memory']:
-                keys = [k for k in last.keys() if pattern in k.lower()]
+                keys = [k for episode in episodes for k in episode.keys() if pattern in k.lower()]
                 if keys:
                     mem_keys = keys
                     break
             
-            cpu_vals = [last.get(k, 0) if last.get(k) is not None else 0 for k in cpu_keys]
-            mem_vals = [last.get(k, 0) if last.get(k) is not None else 0 for k in mem_keys]
+            mem_vals = [episode.get(k, 0) if episode.get(k) is not None else 0 
+                        for episode in episodes for k in mem_keys]
             
-            cpu_variances.append(np.var(cpu_vals) if cpu_vals else 0)
             mem_variances.append(np.var(mem_vals) if mem_vals else 0)
         
-        bars = axes[0].bar(names, cpu_variances, color=colors)
-        axes[0].set_ylabel('CPU Variance'); axes[0].set_title('CPU Load Balance (Lower is Better)')
-        for bar, val in zip(bars, cpu_variances):
-            axes[0].text(bar.get_x() + bar.get_width()/2, bar.get_height() + 1, f'{val:.1f}', ha='center', va='bottom', fontsize=9)
-        
-        bars = axes[1].bar(names, mem_variances, color=colors)
-        axes[1].set_ylabel('Memory Variance'); axes[1].set_title('Memory Load Balance (Lower is Better)')
+        bars = ax.bar(names, mem_variances, color=colors)
+        ax.set_ylabel('Memory Variance')
+        ax.set_title('Memory Imbalance Load')
         for bar, val in zip(bars, mem_variances):
-            axes[1].text(bar.get_x() + bar.get_width()/2, bar.get_height() + 1, f'{val:.1f}', ha='center', va='bottom', fontsize=9)
+            ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 1, 
+                    f'{val:.1f}', ha='center', va='bottom', fontsize=9)
         
-        for ax in axes:
-            ax.grid(True, alpha=0.3, axis='y')
+        ax.grid(True, alpha=0.3, axis='y')
         
         plt.tight_layout()
-        plt.savefig(os.path.join(self.plots_dir, 'per_node_load_balance.png'), dpi=150)
+        plt.savefig(os.path.join(self.plots_dir, 'memory_imbalance_load.png'), dpi=150)
         plt.close()
-        print("  ✓ Saved: per_node_load_balance.png")
+        print("  ✓ Saved: memory_imbalance_load.png")
     
     def plot_node_heatmap(self, data):
         for name, episodes in data.items():
@@ -555,11 +580,13 @@ class ResultsPlotter:
         plt.savefig(os.path.join(self.plots_dir, 'available_nodes_over_time.png'), dpi=150)
         plt.close()
         print("  ✓ Saved: available_nodes_over_time.png")
+        
     def plot_per_node_response_time_comparison(self, data):
         """Plot final per-node response time comparison across agents"""
         fig, ax = plt.subplots(figsize=(12, 6))
         
         # Filter out unwanted agents
+        data = {name: episodes for name, episodes in data.items() if episodes}
         
         # Collect all unique node labels across agents
         all_nodes = set()
@@ -571,23 +598,32 @@ class ResultsPlotter:
             
             # Find response time keys
             rt_keys = []
-            possible_patterns = ['_avg_rt', '_rt_avg', '_response_time', '_resp_time']
+            possible_patterns = ['_avg_rt']
             for pattern in possible_patterns:
-                keys = [k for k in episodes[-1].keys() if pattern in k.lower()]
+                keys = [k for episode in episodes for k in episode.keys() if pattern in k.lower()]
                 if keys:
-                    rt_keys = keys
+                    rt_keys = list(set(keys))  # Get unique keys
                     break
             
             if not rt_keys:
                 continue
             
+            # Get node labels using helper method
             node_labels = [self._get_node_label(k) for k in rt_keys]
-            rt_values = [episodes[-1].get(k, 0) if episodes[-1].get(k) is not None else 0 for k in rt_keys]
             
-            for node, value in zip(node_labels, rt_values):
+            # Calculate mean values across all episodes for each key
+            rt_means = {}
+            for k in rt_keys:
+                values = [episode.get(k, 0) for episode in episodes if episode.get(k) is not None]
+                if values:
+                    rt_means[k] = np.mean(values)
+                else:
+                    rt_means[k] = 0
+            
+            for node, key in zip(node_labels, rt_keys):
                 all_nodes.add(node)
             
-            agent_node_data[name] = dict(zip(node_labels, rt_values))
+            agent_node_data[name] = {node: rt_means[key] for node, key in zip(node_labels, rt_keys)}
         
         if not all_nodes:
             print("  ⚠️ No per-node response time data found for comparison")
@@ -601,23 +637,204 @@ class ResultsPlotter:
         multiplier = 0
         
         for name, node_data in agent_node_data.items():
-            values = [node_data.get(node, 0) for node in all_nodes]
+            values = []
+            for node in all_nodes:
+                value = node_data.get(node, 0)
+                values.append(value)
             offset = width * multiplier
             bars = ax.bar(x + offset, values, width, label=name, 
                         color=self.colors.get(name, self.default_color))
+            
+            # Add value labels on bars
+            for bar in bars:
+                height = bar.get_height()
+                if height > 0:
+                    ax.text(bar.get_x() + bar.get_width()/2., height + 1,
+                        f'{height:.1f}', ha='center', va='bottom', fontsize=8)
+            
             multiplier += 1
         
         ax.set_ylabel('Response Time (ms)', fontsize=12)
-        ax.set_title('Per-Node Response Time Comparison', fontsize=14)
+        ax.set_title('Per-Node Response Time Comparison (Mean)', fontsize=14, fontweight='bold')
         ax.set_xticks(x + width * (multiplier - 1) / 2)
         ax.set_xticklabels(all_nodes)
-        ax.legend(loc='best')
-        ax.grid(True, alpha=0.3, axis='y')
+        ax.legend(loc='upper right', fontsize=11, framealpha=0.9)
+        ax.grid(True, alpha=0.3, axis='y', linestyle='--')
         
         plt.tight_layout()
         plt.savefig(os.path.join(self.plots_dir, 'per_node_response_time_comparison.png'), dpi=150)
         plt.close()
         print("  ✓ Saved: per_node_response_time_comparison.png")
+        
+    def plot_per_node_memory_comparison(self, data):
+        """Plot final per-node memory usage comparison across agents"""
+        fig, ax = plt.subplots(figsize=(12, 6))
+        
+        # Filter out unwanted agents
+        data = {name: episodes for name, episodes in data.items() if episodes}
+        
+        # Collect all unique node labels across agents
+        all_nodes = set()
+        agent_node_data = {}
+        
+        for name, episodes in data.items():
+            if not episodes:
+                continue
+            
+            # Find memory usage keys
+            mem_keys = []
+            possible_patterns = ['_avg_mem']
+            for pattern in possible_patterns:
+                keys = [k for episode in episodes for k in episode.keys() if pattern in k.lower()]
+                if keys:
+                    mem_keys = list(set(keys))  # Get unique keys
+                    break
+            
+            if not mem_keys:
+                continue
+            
+            # Get node labels using helper method
+            node_labels = [self._get_node_label(k) for k in mem_keys]
+            
+            # Calculate mean values across all episodes for each key
+            mem_means = {}
+            for k in mem_keys:
+                values = [episode.get(k, 0) for episode in episodes if episode.get(k) is not None]
+                if values:
+                    mem_means[k] = np.mean(values)
+                else:
+                    mem_means[k] = 0
+            
+            for node in node_labels:
+                all_nodes.add(node)
+            
+            agent_node_data[name] = {node: mem_means[key] for node, key in zip(node_labels, mem_keys)}
+        
+        if not all_nodes:
+            print("  ⚠️ No per-node memory usage data found for comparison")
+            return
+        
+        all_nodes = sorted(list(all_nodes))
+        
+        # Set up bar positions
+        x = np.arange(len(all_nodes))
+        width = 0.25
+        multiplier = 0
+        
+        for name, node_data in agent_node_data.items():
+            values = []
+            for node in all_nodes:
+                value = node_data.get(node, 0)
+                values.append(value)
+            offset = width * multiplier
+            bars = ax.bar(x + offset, values, width, label=name, 
+                        color=self.colors.get(name, self.default_color))
+            
+            # Add value labels on bars
+            for bar in bars:
+                height = bar.get_height()
+                if height > 0:
+                    ax.text(bar.get_x() + bar.get_width()/2., height + 1,
+                        f'{height:.1f}', ha='center', va='bottom', fontsize=8)
+            
+            multiplier += 1
+        
+        ax.set_ylabel('Memory Usage (%)', fontsize=12)
+        ax.set_title('Per-Node Memory Usage Comparison (Mean)', fontsize=14, fontweight='bold')
+        ax.set_xticks(x + width * (multiplier - 1) / 2)
+        ax.set_xticklabels(all_nodes)
+        ax.legend(loc='upper right', fontsize=11, framealpha=0.9)
+        ax.grid(True, alpha=0.3, axis='y', linestyle='--')
+        
+        plt.tight_layout()
+        plt.savefig(os.path.join(self.plots_dir, 'per_node_memory_usage_comparison.png'), dpi=150)
+        plt.close()
+        print("  ✓ Saved: per_node_memory_usage_comparison.png")
+        
+    def plot_per_node_cpu_comparison(self, data):
+        """Plot final per-node CPU usage comparison across agents"""
+        fig, ax = plt.subplots(figsize=(12, 6))
+        
+        # Filter out unwanted agents
+        data = {name: episodes for name, episodes in data.items() if episodes}
+        
+        # Collect all unique node labels across agents
+        all_nodes = set()
+        agent_node_data = {}
+        
+        for name, episodes in data.items():
+            if not episodes:
+                continue
+            
+            # Find CPU usage keys
+            cpu_keys = []
+            possible_patterns = ['_avg_cpu']
+            for pattern in possible_patterns:
+                keys = [k for episode in episodes for k in episode.keys() if pattern in k.lower()]
+                if keys:
+                    cpu_keys = list(set(keys))  # Get unique keys
+                    break
+            
+            if not cpu_keys:
+                continue
+            
+            # Get node labels using helper method
+            node_labels = [self._get_node_label(k) for k in cpu_keys]
+            
+            # Calculate mean values across all episodes for each key
+            cpu_means = {}
+            for k in cpu_keys:
+                values = [episode.get(k, 0) for episode in episodes if episode.get(k) is not None]
+                if values:
+                    cpu_means[k] = np.mean(values)
+                else:
+                    cpu_means[k] = 0
+            
+            for node in node_labels:
+                all_nodes.add(node)
+            
+            agent_node_data[name] = {node: cpu_means[key] for node, key in zip(node_labels, cpu_keys)}
+        
+        if not all_nodes:
+            print("  ⚠️ No per-node CPU usage data found for comparison")
+            return
+        
+        all_nodes = sorted(list(all_nodes))
+        
+        # Set up bar positions
+        x = np.arange(len(all_nodes))
+        width = 0.25
+        multiplier = 0
+        
+        for name, node_data in agent_node_data.items():
+            values = []
+            for node in all_nodes:
+                value = node_data.get(node, 0)
+                values.append(value)
+            offset = width * multiplier
+            bars = ax.bar(x + offset, values, width, label=name, 
+                        color=self.colors.get(name, self.default_color))
+            
+            # Add value labels on bars
+            for bar in bars:
+                height = bar.get_height()
+                if height > 0:
+                    ax.text(bar.get_x() + bar.get_width()/2., height + 1,
+                        f'{height:.1f}', ha='center', va='bottom', fontsize=8)
+            
+            multiplier += 1
+        
+        ax.set_ylabel('CPU Usage (%)', fontsize=12)
+        ax.set_title('Per-Node CPU Usage Comparison (Mean)', fontsize=14, fontweight='bold')
+        ax.set_xticks(x + width * (multiplier - 1) / 2)
+        ax.set_xticklabels(all_nodes)
+        ax.legend(loc='upper right', fontsize=11, framealpha=0.9)
+        ax.grid(True, alpha=0.3, axis='y', linestyle='--')
+        
+        plt.tight_layout()
+        plt.savefig(os.path.join(self.plots_dir, 'per_node_cpu_usage_comparison.png'), dpi=150)
+        plt.close()
+        print("  ✓ Saved: per_node_cpu_usage_comparison.png")
     
     def plot_response_time(self, data):
         """Plot average response time over episodes"""
@@ -683,7 +900,7 @@ class ResultsPlotter:
         plt.savefig(os.path.join(self.plots_dir, 'scalability_adaptation.png'), dpi=150)
         plt.close()
         print("  ✓ Saved: scalability_adaptation.png")
-        # ========== NEW: Per-Node Response Time Plot ==========
+        
     def plot_per_node_response_time(self, data):
         """Plot per-node response time - separate figure for each agent"""
         for name, episodes in data.items():
@@ -744,14 +961,17 @@ class ResultsPlotter:
         
         self.plot_learning_curves(data)
         self.plot_epsilon_decay(data)
-        self.plot_final_comparison(data)
+        #self.plot_final_comparison(data)
         self.plot_safety_comparison(data)
         self.plot_constraint_violations_over_time(data)
         self.plot_per_node_cpu(data)
         self.plot_per_node_mem(data)
         self.plot_per_node_response_time_comparison(data)
+        self.plot_per_node_memory_comparison(data)
+        self.plot_per_node_cpu_comparison(data)
         self.plot_per_node_response_time(data)
-        self.plot_per_node_load_balance(data)
+        self.plot_memory_load_balance(data)
+        self.plot_cpu_load_balance(data)
         #self.plot_node_heatmap(data)
         self.plot_available_nodes_over_time(data)
         self.plot_scalability_adaptation(data)

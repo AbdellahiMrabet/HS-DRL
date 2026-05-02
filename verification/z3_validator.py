@@ -323,7 +323,7 @@ class Z3Validator:
             'z3_before_safety_rate': (self.stats.episode_before_safe / max(before_total, 1)) * 100,
             'z3_after_safe': self.stats.episode_after_safe,
             'z3_after_unsafe': self.stats.episode_after_unsafe,
-            'z3_after_safety_rate': (self.stats.episode_after_safe / max(after_total, 1)) * 100,
+            'z3_after_safety_rate': (100 - self.stats.episode_after_unsafe) * 100,
             'z3_projections': self.stats.episode_projections,
             'z3_unsafe_prevented': self.stats.episode_before_unsafe - self.stats.episode_after_unsafe,
             'z3_shield_effectiveness': ((self.stats.episode_before_unsafe - self.stats.episode_after_unsafe) / max(self.stats.episode_before_unsafe, 1)) * 100

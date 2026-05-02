@@ -688,7 +688,13 @@ class K8sEnv(gym.Env):
                 print(f"  ⚠️ Node {node_name} not ready - penalty {reward}")
             else:
                 api_start = time.perf_counter()
-                
+                # Check if chosen action is optimal
+                is_optimal = (action == self._find_best_node() \
+                    and action == safe_action)
+                                    
+                done = is_optimal
+                print(f'expected action: {self._find_best_node()}, '
+                    f'actual action: {safe_action}, done {done}')
                 deployed, _, api_response_time = self.pod_manager.deploy_nginx_pod(
                     node_name=node_name,
                     cpu_request=self.current_pod['cpu'],
@@ -714,15 +720,6 @@ class K8sEnv(gym.Env):
                             loads = [n['cpu_percent'] for n in self.nodes if n.get('ready', True)]
                             if loads:
                                 reward -= np.std(loads) * REWARD_LOAD_PENALTY_FACTOR
-                            
-                            # Pre-calculate reward map for comparison (using SAME formula)
-                            
-                            # Check if chosen action is optimal
-                            is_optimal = (action == self._find_best_node())
-                            
-                            done = is_optimal
-                            print(f'expected action: {self._find_best_node()}, '
-                                  f'actual action: {safe_action}, done {done}')
                         
                     else:
                         reward -= REWARD_CONSTRAINT_PENALTY

@@ -1,367 +1,191 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
-from scipy.signal import savgol_filter
-from scipy.ndimage import gaussian_filter1d
+from config import COLORS
 
-# Read the CSV file
-df = pd.read_csv('results/DRS_baseline_penalty_results.csv')
-
-# Define metrics to plot (excluding non-numeric and redundant columns)
-metrics_to_plot = [
-    'total_reward',
-    'success_rate',
-    'avg_util',
-    'avg_imbalance',
-    'avg_response_time',
-    'constraint_violations',
-    'deployed_pods',
-    'avg_available_nodes',
-    'min_available_nodes',
-    'safety_compliance_rate',
-    'minikube_avg_cpu',
-    'minikube-m02_avg_cpu',
-    'minikube-m03_avg_cpu',
-    'minikube-m04_avg_cpu',
-    'minikube_avg_mem',
-    'minikube-m02_avg_mem',
-    'minikube-m03_avg_mem',
-    'minikube-m04_avg_mem',
-    'epsilon'
-]
-
-def apply_smoothing(data, window_size=11, poly_order=2):
+def plot_reward_smoothed(file1, file2, file3, labels, window_size=5):
     """
-    Apply Savitzky-Golay smoothing filter to data
+    Plot smoothed total_reward only - independent figure.
     """
-    if len(data) < window_size:
-        window_size = len(data) if len(data) % 2 == 1 else len(data) - 1
-        if window_size < 3:
-            return data
+    df1 = pd.read_csv(file1)
+    df2 = pd.read_csv(file2)
+    df3 = pd.read_csv(file3)
     
-    try:
-        # Ensure window_size is odd and less than data length
-        if window_size % 2 == 0:
-            window_size += 1
-        if window_size > len(data):
-            window_size = len(data) if len(data) % 2 == 1 else len(data) - 1
-        
-        if window_size >= 3:
-            smoothed = savgol_filter(data, window_size, poly_order)
-            return smoothed
-        else:
-            return data
-    except:
-        # Fallback to Gaussian smoothing
-        try:
-            smoothed = gaussian_filter1d(data, sigma=2)
-            return smoothed
-        except:
-            return data
-
-# Filter metrics that are numeric
-numeric_metrics = []
-for metric in metrics_to_plot:
-    if metric in df.columns:
-        # Check if the column is numeric
-        if pd.api.types.is_numeric_dtype(df[metric]):
-            numeric_metrics.append(metric)
-        else:
-            print(f"Skipping non-numeric metric: '{metric}' (dtype: {df[metric].dtype})")
-
-print(f"\nPlotting {len(numeric_metrics)} numeric metrics...")
-
-# Create individual plots for each numeric metric
-for metric in numeric_metrics:
-    plt.figure(figsize=(14, 7))
+    dataframes = [df1, df2, df3]
     
-    episodes = df['episode'].values
-    values = df[metric].values
+    fig, ax = plt.subplots(figsize=(10, 6))
     
-    # Remove any NaN values
-    mask = ~np.isnan(values)
-    episodes_clean = episodes[mask]
-    values_clean = values[mask]
+    colors = [COLORS.get(label, '#333333') for label in labels]
+    line_styles = ['-', '-', '-']
+    line_width = 1.5
     
-    # Create the plot with original data (semi-transparent)
-    plt.plot(episodes_clean, values_clean, 'o', markersize=3, alpha=0.3, 
-             label='Original Data', color='gray')
-    
-    # Apply smoothing
-    if len(values_clean) > 10:
-        # Try different smoothing windows based on data length
-        if len(values_clean) > 100:
-            smoothed = apply_smoothing(values_clean, window_size=21, poly_order=3)
-        elif len(values_clean) > 50:
-            smoothed = apply_smoothing(values_clean, window_size=15, poly_order=2)
-        else:
-            smoothed = apply_smoothing(values_clean, window_size=7, poly_order=2)
-        
-        # Plot smoothed curve
-        plt.plot(episodes_clean, smoothed, linewidth=2.5, color='red', 
-                label='Smoothed Trend', alpha=0.8)
-        
-        # Also add a rolling mean for comparison (optional)
-        window = min(10, len(values_clean)//5)
-        if window >= 3:
-            rolling_mean = pd.Series(values_clean).rolling(window=window, center=True).mean()
-            plt.plot(episodes_clean, rolling_mean, '--', linewidth=1.5, color='blue', 
-                    alpha=0.6, label=f'Rolling Mean (window={window})')
-    else:
-        # If too few points, just plot the original
-        plt.plot(episodes_clean, values_clean, 'o-', linewidth=1.5, markersize=4, 
-                label='Original Data', color='blue')
-    
-    # Customize the plot
-    plt.xlabel('Episode', fontsize=12)
-    plt.ylabel(metric.replace('_', ' ').title(), fontsize=12)
-    plt.title(f'{metric.replace("_", " ").title()} vs Episode (with Smoothing)', 
-              fontsize=14, fontweight='bold')
-    plt.grid(True, alpha=0.3)
-    plt.legend(loc='best')
-    
-    # Add some statistics as text on the plot
-    try:
-        mean_val = values_clean.mean()
-        std_val = values_clean.std()
-        max_val = values_clean.max()
-        min_val = values_clean.min()
-        
-        stats_text = f'Mean: {mean_val:.2f}\nStd: {std_val:.2f}\nMax: {max_val:.2f}\nMin: {min_val:.2f}'
-        plt.text(0.02, 0.98, stats_text, transform=plt.gca().transAxes, 
-                fontsize=10, verticalalignment='top',
-                bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
-    except Exception as e:
-        print(f"Could not calculate statistics for {metric}: {e}")
-    
-    # Tight layout to prevent label cutoff
-    plt.tight_layout()
-    
-    # Save the figure
-    plt.savefig(f'results/plots/{metric}_plot_smoothed.png', dpi=150, bbox_inches='tight')
-    
-    # Display the plot
-    plt.show()
-    
-    # Close the figure to free memory
-    plt.close()
-
-# Create a comprehensive summary plot with smoothed trends
-print("\nCreating comprehensive summary plot...")
-
-# Select a subset of key metrics for the summary plot
-key_metrics = [
-    'total_reward',
-    'success_rate',
-    'avg_util',
-    'avg_imbalance',
-    'avg_response_time',
-    'deployed_pods'
-]
-
-# Filter key metrics to only include numeric ones
-numeric_key_metrics = [m for m in key_metrics if m in df.columns and pd.api.types.is_numeric_dtype(df[m])]
-
-if numeric_key_metrics:
-    # Calculate number of rows needed
-    n_metrics = len(numeric_key_metrics)
-    n_cols = 3
-    n_rows = (n_metrics + n_cols - 1) // n_cols
-    
-    # Create subplots for key metrics
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(16, 5*n_rows))
-    if n_rows == 1:
-        axes = axes.flatten()
-    else:
-        axes = axes.flatten()
-    
-    for idx, metric in enumerate(numeric_key_metrics):
-        if idx < len(axes):
-            episodes = df['episode'].values
-            values = df[metric].values
-            
-            # Remove NaN values
-            mask = ~np.isnan(values)
-            episodes_clean = episodes[mask]
-            values_clean = values[mask]
-            
-            # Plot original with low opacity
-            axes[idx].plot(episodes_clean, values_clean, 'o', markersize=2, alpha=0.2, color='gray')
-            
-            # Add smoothed trend
-            if len(values_clean) > 10:
-                window_size = min(15, len(values_clean)//4)
-                if window_size % 2 == 0:
-                    window_size += 1
-                if window_size >= 3:
-                    smoothed = apply_smoothing(values_clean, window_size=window_size, poly_order=2)
-                    axes[idx].plot(episodes_clean, smoothed, linewidth=2, color='red', alpha=0.8)
-            
-            axes[idx].set_xlabel('Episode', fontsize=10)
-            axes[idx].set_ylabel(metric.replace('_', ' ').title(), fontsize=10)
-            axes[idx].set_title(metric.replace('_', ' ').title(), fontsize=12, fontweight='bold')
-            axes[idx].grid(True, alpha=0.3)
-    
-    # Hide any unused subplots
-    for idx in range(len(numeric_key_metrics), len(axes)):
-        axes[idx].set_visible(False)
-    
-    plt.suptitle('Key Performance Metrics Over Episodes (with Smoothing)', fontsize=16, fontweight='bold')
-    plt.tight_layout()
-    plt.savefig('summary_metrics_plot_smoothed.png', dpi=150, bbox_inches='tight')
-    plt.show()
-else:
-    print("No numeric key metrics found for summary plot")
-
-# Create CPU utilization comparison plot with smoothing
-cpu_metrics = ['minikube_avg_cpu', 'minikube-m02_avg_cpu', 'minikube-m03_avg_cpu', 'minikube-m04_avg_cpu']
-numeric_cpu_metrics = [m for m in cpu_metrics if m in df.columns and pd.api.types.is_numeric_dtype(df[m])]
-
-if len(numeric_cpu_metrics) > 0:
-    plt.figure(figsize=(14, 7))
-    colors = ['blue', 'green', 'orange', 'purple']
-    
-    for idx, metric in enumerate(numeric_cpu_metrics):
+    for i, (df, label, color, ls) in enumerate(zip(dataframes, labels, colors, line_styles)):
         episodes = df['episode'].values
-        values = df[metric].values
+        rewards = df['total_reward'].values
         
-        # Remove NaN values
-        mask = ~np.isnan(values)
-        episodes_clean = episodes[mask]
-        values_clean = values[mask]
-        
-        # Plot original with low opacity
-        plt.plot(episodes_clean, values_clean, 'o', markersize=2, alpha=0.2, 
-                color=colors[idx % len(colors)])
-        
-        # Add smoothed trend
-        if len(values_clean) > 10:
-            window_size = min(15, len(values_clean)//4)
-            if window_size % 2 == 0:
-                window_size += 1
-            if window_size >= 3:
-                smoothed = apply_smoothing(values_clean, window_size=window_size, poly_order=2)
-                plt.plot(episodes_clean, smoothed, linewidth=2.5, color=colors[idx % len(colors)], 
-                        label=metric.replace('minikube', '').replace('_avg_cpu', ''), alpha=0.8)
-        else:
-            plt.plot(episodes_clean, values_clean, 'o-', linewidth=1.5, 
-                    color=colors[idx % len(colors)], 
-                    label=metric.replace('minikube', '').replace('_avg_cpu', ''))
+        reward_ma = np.convolve(rewards, np.ones(window_size)/window_size, mode='valid')
+        ax.plot(episodes[window_size-1:], reward_ma, color=color, linestyle=ls,
+                linewidth=line_width, label=label, alpha=0.9)
     
-    plt.xlabel('Episode', fontsize=12)
-    plt.ylabel('CPU Usage (%)', fontsize=12)
-    plt.title('CPU Usage Comparison Across Minikube Nodes (with Smoothing)', fontsize=14, fontweight='bold')
-    plt.legend()
-    plt.grid(True, alpha=0.3)
+    ax.set_xlabel('Episode', fontsize=12)
+    ax.set_ylabel('Total Reward (Smoothed)', fontsize=12)
+    ax.set_title(f'Training Rewards Over Episodes (Moving Average, Window={window_size})', 
+                  fontsize=14, fontweight='bold')
+    ax.legend(loc='upper left', fontsize=11, framealpha=0.9)
+    ax.grid(True, alpha=0.3, linestyle='--')
+    
     plt.tight_layout()
-    plt.savefig('cpu_comparison_plot_smoothed.png', dpi=150, bbox_inches='tight')
+    plt.savefig('reward_smoothed.png', dpi=150, bbox_inches='tight')
     plt.show()
-else:
-    print("No numeric CPU metrics found")
 
-# Create memory utilization comparison plot with smoothing
-mem_metrics = ['minikube_avg_mem', 'minikube-m02_avg_mem', 'minikube-m03_avg_mem', 'minikube-m04_avg_mem']
-numeric_mem_metrics = [m for m in mem_metrics if m in df.columns and pd.api.types.is_numeric_dtype(df[m])]
 
-if len(numeric_mem_metrics) > 0:
-    plt.figure(figsize=(14, 7))
-    colors = ['blue', 'green', 'orange', 'purple']
+def plot_success_smoothed(file1, file2, file3, labels, window_size=5):
+    """
+    Plot smoothed success_rate only - independent figure.
+    """
+    df1 = pd.read_csv(file1)
+    df2 = pd.read_csv(file2)
+    df3 = pd.read_csv(file3)
     
-    for idx, metric in enumerate(numeric_mem_metrics):
+    dataframes = [df1, df2, df3]
+    
+    fig, ax = plt.subplots(figsize=(10, 6))
+    
+    colors = [COLORS.get(label, '#333333') for label in labels]
+    line_styles = ['-', '-', '-']
+    line_width = 1.5
+    
+    for i, (df, label, color, ls) in enumerate(zip(dataframes, labels, colors, line_styles)):
         episodes = df['episode'].values
-        values = df[metric].values
+        success_rates = df['success_rate'].values
         
-        # Remove NaN values
-        mask = ~np.isnan(values)
-        episodes_clean = episodes[mask]
-        values_clean = values[mask]
-        
-        # Plot original with low opacity
-        plt.plot(episodes_clean, values_clean, 'o', markersize=2, alpha=0.2,
-                color=colors[idx % len(colors)])
-        
-        # Add smoothed trend
-        if len(values_clean) > 10:
-            window_size = min(15, len(values_clean)//4)
-            if window_size % 2 == 0:
-                window_size += 1
-            if window_size >= 3:
-                smoothed = apply_smoothing(values_clean, window_size=window_size, poly_order=2)
-                plt.plot(episodes_clean, smoothed, linewidth=2.5, color=colors[idx % len(colors)],
-                        label=metric.replace('minikube', '').replace('_avg_mem', ''), alpha=0.8)
-        else:
-            plt.plot(episodes_clean, values_clean, 'o-', linewidth=1.5,
-                    color=colors[idx % len(colors)],
-                    label=metric.replace('minikube', '').replace('_avg_mem', ''))
+        success_ma = np.convolve(success_rates, np.ones(window_size)/window_size, mode='valid')
+        ax.plot(episodes[window_size-1:], success_ma, color=color, linestyle=ls,
+                linewidth=line_width, label=label, alpha=0.9)
     
-    plt.xlabel('Episode', fontsize=12)
-    plt.ylabel('Memory Usage (MB)', fontsize=12)
-    plt.title('Memory Usage Comparison Across Minikube Nodes (with Smoothing)', fontsize=14, fontweight='bold')
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    plt.tight_layout()
-    plt.savefig('memory_comparison_plot_smoothed.png', dpi=150, bbox_inches='tight')
-    plt.show()
-else:
-    print("No numeric memory metrics found")
-
-# Additional analysis: Plot success_rate vs total_reward with trend line
-if ('success_rate' in df.columns and pd.api.types.is_numeric_dtype(df['success_rate']) and
-    'total_reward' in df.columns and pd.api.types.is_numeric_dtype(df['total_reward'])):
-    
-    plt.figure(figsize=(12, 7))
-    
-    # Remove NaN values
-    mask = ~(np.isnan(df['success_rate']) | np.isnan(df['total_reward']))
-    success_rates = df['success_rate'][mask].values
-    total_rewards = df['total_reward'][mask].values
-    
-    plt.scatter(success_rates, total_rewards, alpha=0.6, s=30, label='Data Points')
-    
-    # Add trend line
-    z = np.polyfit(success_rates, total_rewards, 1)
-    p = np.poly1d(z)
-    
-    # Sort for smooth line
-    x_sorted = np.sort(success_rates)
-    plt.plot(x_sorted, p(x_sorted), "r-", linewidth=2, 
-             alpha=0.8, label=f'Trend: y={z[0]:.2f}x+{z[1]:.2f}')
-    
-    # Add confidence interval (optional)
-    from scipy import stats
-    slope, intercept, r_value, p_value, std_err = stats.linregress(success_rates, total_rewards)
-    confidence_interval = 1.96 * std_err
-    plt.fill_between(x_sorted, p(x_sorted) - confidence_interval, 
-                     p(x_sorted) + confidence_interval, alpha=0.2, color='red')
-    
-    plt.xlabel('Success Rate (%)', fontsize=12)
-    plt.ylabel('Total Reward', fontsize=12)
-    plt.title('Success Rate vs Total Reward (with Trend Line)', fontsize=14, fontweight='bold')
-    plt.grid(True, alpha=0.3)
-    plt.legend()
-    
-    # Add correlation information
-    corr_text = f'Correlation: r={r_value:.3f}\np-value: {p_value:.3e}'
-    plt.text(0.05, 0.95, corr_text, transform=plt.gca().transAxes, 
-            fontsize=10, verticalalignment='top',
-            bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+    ax.set_xlabel('Episode', fontsize=12)
+    ax.set_ylabel('Success Rate % (Smoothed)', fontsize=12)
+    ax.set_title(f'Success Rate Over Episodes (Moving Average, Window={window_size})', 
+                  fontsize=14, fontweight='bold')
+    ax.legend(loc='lower right', fontsize=11, framealpha=0.9)
+    ax.grid(True, alpha=0.3, linestyle='--')
+    ax.set_ylim([-5, 105])
     
     plt.tight_layout()
-    plt.savefig('success_vs_reward_with_trend.png', dpi=150, bbox_inches='tight')
+    plt.savefig('success_smoothed.png', dpi=150, bbox_inches='tight')
     plt.show()
 
-print("\n" + "="*60)
-print("Plot generation with smoothing complete!")
-print(f"Total episodes processed: {len(df)}")
-print(f"Numeric metrics plotted: {len(numeric_metrics)}")
-print("\nSmoothing techniques used:")
-print("  - Savitzky-Golay filter (primary)")
-print("  - Gaussian filter (fallback)")
-print("  - Rolling mean (optional)")
-print("\nFiles created:")
-print(f"  - {len(numeric_metrics)} individual smoothed plots")
-print("  - summary_metrics_plot_smoothed.png")
-print("  - cpu_comparison_plot_smoothed.png")
-print("  - memory_comparison_plot_smoothed.png")
-print("  - success_vs_reward_with_trend.png")
-print("="*60)
+def plot_per_node_memory(file1, file2, file3, labels, window_size=5):
+    """
+    Plot per-node average memory usage for each method.
+    Creates separate figures for each method with all nodes.
+    """
+    df1 = pd.read_csv(file1)
+    df2 = pd.read_csv(file2)
+    df3 = pd.read_csv(file3)
+    
+    dataframes = [df1, df2, df3]
+    colors = [COLORS.get(label, '#333333') for label in labels]
+    
+    # Node names
+    node_names = ['minikube', 'minikube-m02', 'minikube-m03', 'minikube-m04']
+    node_colors = ['#E74C3C', '#3498DB', '#2ECC71', '#F39C12']
+    
+    # Create figure for each method
+    for method_idx, (df, label, method_color) in enumerate(zip(dataframes, labels, colors)):
+        fig, ax = plt.subplots(figsize=(12, 6))
+        
+        episodes = df['episode'].values
+        
+        for node_name, node_color in zip(node_names, node_colors):
+            mem_col = f'{node_name}_avg_mem'
+            
+            if mem_col in df.columns:
+                mem_values = df[mem_col].values
+                mem_ma = np.convolve(mem_values, np.ones(window_size)/window_size, mode='valid')
+                ax.plot(episodes[window_size-1:], mem_ma, color=node_color,
+                       linewidth=1.5, label=node_name, alpha=0.85)
+        
+        ax.set_xlabel('Episode', fontsize=12)
+        ax.set_ylabel('Average Memory Usage (%)', fontsize=12)
+        ax.set_title(f'{label} - Per-Node Memory Usage (Moving Average, Window={window_size})', 
+                      fontsize=14, fontweight='bold')
+        ax.legend(loc='upper right', fontsize=10, framealpha=0.9)
+        ax.grid(True, alpha=0.3, linestyle='--')
+        ax.set_ylim([-5, 105])
+        
+        plt.tight_layout()
+        plt.savefig(f'per_node_memory_{label.replace(" ", "_")}.png', dpi=150, bbox_inches='tight')
+        plt.show()
+
+def plot_per_node_memory_bar(file1, file2, file3, labels):
+    """
+    Create a bar chart comparing average memory usage per node across all agents.
+    """
+    df1 = pd.read_csv(file1)
+    df2 = pd.read_csv(file2)
+    df3 = pd.read_csv(file3)
+    
+    dataframes = [df1, df2, df3]
+    
+    node_names = ['minikube', 'minikube-m02', 'minikube-m03', 'minikube-m04']
+    
+    # Calculate mean memory for each node across all agents
+    data = {}
+    for label, df in zip(labels, dataframes):
+        mem_means = []
+        for node in node_names:
+            mem_col = f'{node}_avg_mem'
+            if mem_col in df.columns:
+                mem_means.append(df[mem_col].mean())
+            else:
+                mem_means.append(0)
+        data[label] = mem_means
+    
+    # Create DataFrame for bar plot
+    bar_df = pd.DataFrame(data, index=node_names)
+    
+    # Plot bar chart
+    colors = [COLORS.get(label, '#333333') for label in labels]
+    ax = bar_df.plot(kind='bar', figsize=(12, 6), color=colors, width=0.7, edgecolor='black', linewidth=0.5)
+    
+    ax.set_xlabel('Nodes', fontsize=12)
+    ax.set_ylabel('Average Memory Usage (%)', fontsize=12)
+    ax.set_title('Per-Node Average Memory Usage Comparison', fontsize=14, fontweight='bold')
+    ax.legend(loc='upper right', fontsize=11, framealpha=0.9)
+    ax.grid(True, alpha=0.3, axis='y', linestyle='--')
+    ax.set_ylim([0, 105])
+    
+    # Add value labels on bars
+    for container in ax.containers:
+        ax.bar_label(container, fmt='%.1f', fontsize=9, padding=3)
+    
+    plt.tight_layout()
+    plt.savefig('per_node_memory_bar.png', dpi=150, bbox_inches='tight')
+    plt.show()
+
+
+if __name__ == "__main__":
+    # File paths
+    eprs_file = "results/EPRS_results.csv"
+    hs_drl_file = "results/HS-DRL_BEFORE_AFTER_results.csv"
+    ppo_lrt_file = "results/PPO-LRT_results.csv"
+    
+    # Labels for the methods
+    method_labels = ["EPRS", "HS-DRL", "PPO-LRT"]
+    
+    # Plot smoothed rewards only (independent figure)
+    plot_reward_smoothed(eprs_file, hs_drl_file, ppo_lrt_file, 
+                         method_labels, window_size=5)
+    
+    # Plot smoothed success rate only (independent figure)
+    plot_success_smoothed(eprs_file, hs_drl_file, ppo_lrt_file, 
+                          method_labels, window_size=5)
+    
+    # Plot per-node memory for each method separately
+    plot_per_node_memory(eprs_file, hs_drl_file, ppo_lrt_file, 
+                         method_labels, window_size=5)
+    
+    # Print statistics
+    plot_per_node_memory_bar(eprs_file, hs_drl_file, ppo_lrt_file, 
+                            method_labels)

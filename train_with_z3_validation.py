@@ -56,7 +56,7 @@ class Z3ValidationTrainer:
         
         obs, _ = self.env.reset()
         self.agent = self._init_agent(len(obs), self.env.action_space.n)
-        self.csv_saver = CSVSaver(f"{self.agent_name}_BEFORE_AFTER")
+        self.csv_saver = CSVSaver(f"{self.agent_name}")
         
         episode_rewards, episode_success_rates = [], []
         
@@ -169,7 +169,7 @@ class Z3ValidationTrainer:
         with open('z3_validation_report.txt', 'w') as f:
             f.write(self.validator.get_comparison_report())
         
-        print(f"\n✓ Results saved to results/{self.agent_name}_BEFORE_AFTER_results.csv")
+        print(f"\n✓ Results saved to results/{self.agent_name}_results.csv")
         print(f"✓ Z3 validation report saved to z3_validation_report.txt")
         
         return {'success_rate': np.mean(episode_success_rates) * 100}

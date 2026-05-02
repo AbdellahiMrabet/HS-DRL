@@ -12,3 +12,5 @@ benchmark_figures/
 benchmark_results/
 results/
 .docker/
+old_results/
+old_results_v2/

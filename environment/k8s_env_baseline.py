@@ -545,7 +545,9 @@ class K8sEnvBaseline(gym.Env):
                 )
                 
                 api_response_time = (time.perf_counter() - api_start) * 1000
-                
+                done = (action == self.select_best_node_eprs())
+                print(f"expected action {self.select_best_node_eprs()},\
+                    actual action {action}, done {done}")
                 if deployed:
                     success = True
                     self._update_latest_response_time(node_name, api_response_time)
@@ -678,9 +680,6 @@ class K8sEnvBaseline(gym.Env):
         
         self.total_reward += reward
         truncated = self.step_count >= MAX_STEPS
-        done = (action == self.select_best_node_eprs())
-        print(f"expected action {self.select_best_node_eprs()},\
-            actual action {action}, done {done}")
         
         if self.tracker:
             avg_util_tracker = np.mean([n['cpu_percent'] for n in self.nodes]) if self.nodes else 0.0
@@ -695,6 +694,7 @@ class K8sEnvBaseline(gym.Env):
                 full_response_time=full_response_time,
                 api_response_time=api_response_time,
                 nodes_data=self.nodes,
+                latest_response_time=self.latest_response_time,
                 projection=projection_triggered,
                 arrival_count=len(self.pod_stack),
                 available_nodes=available_count

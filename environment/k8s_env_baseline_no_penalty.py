@@ -485,7 +485,11 @@ class K8sEnvBaseline(gym.Env):
                 )
                 
                 api_response_time = (time.perf_counter() - api_start) * 1000
-                
+                best_node = \
+                        self.select_best_node_greedy(api_response_time, self.nodes, self.current_pod)
+                done = (best_node == action)
+                print('expected node {}, actual node {}, done {}'.
+                                format(best_node, action, done))
                 # In environment/k8s_env_baseline.py, replace the reward calculation in step()
 
                 # ============================================================
@@ -530,11 +534,6 @@ class K8sEnvBaseline(gym.Env):
                     reward = load_balance - penalty_component - rt_component
                     # Clip reward to reasonable range
                     reward = np.clip(reward, -10.0, 10.0)
-                    best_node = \
-                        self.select_best_node_greedy(api_response_time, self.nodes, self.current_pod)
-                    done = (best_node == action)
-                    print('expected node {}, actual node {}, done {}'.
-                          format(best_node, action, done))
                     
                     print(f"  ✅ Deployed to {node_name} | API: {api_response_time:.1f}ms | "
                         f"Memory Utilization: {target_node['mem_percent'] * 100:.2f} % | ")
@@ -582,6 +581,7 @@ class K8sEnvBaseline(gym.Env):
                 full_response_time=full_response_time,
                 api_response_time=api_response_time,
                 nodes_data=self.nodes,
+                latest_response_time=self.latest_response_time,
                 projection=projection_triggered,
                 arrival_count=len(self.pod_stack),
                 available_nodes=available_count
