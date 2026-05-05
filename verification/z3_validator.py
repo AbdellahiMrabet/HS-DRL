@@ -235,7 +235,8 @@ class Z3Validator:
             return False, violations
         else:
             # Solver error (timeout, unknown)
-            raise RuntimeError(f"Z3 solver returned {result} - cannot determine safety")
+            print(f"Z3 solver returned {result} - cannot determine safety")
+            return False, ["z3_solver_error"]
     
     def validate_before_projection(self, env, raw_action: int) -> Tuple[bool, str]:
         """
@@ -320,10 +321,12 @@ class Z3Validator:
         return {
             'z3_before_safe': self.stats.episode_before_safe,
             'z3_before_unsafe': self.stats.episode_before_unsafe,
-            'z3_before_safety_rate': (self.stats.episode_before_safe / max(before_total, 1)) * 100,
+            'z3_before_safety_rate': (self.stats.episode_before_safe / max(before_total, 1)) * 100 \
+                if self.stats.episode_before_safe > 0 else 100 - self.stats.episode_before_unsafe,
             'z3_after_safe': self.stats.episode_after_safe,
             'z3_after_unsafe': self.stats.episode_after_unsafe,
-            'z3_after_safety_rate': (100 - self.stats.episode_after_unsafe) * 100,
+            'z3_after_safety_rate': (self.stats.episode_after_safe / max(after_total, 1)) * 100 \
+                if self.stats.episode_after_safe > 0 else 100 - self.stats.episode_after_unsafe,
             'z3_projections': self.stats.episode_projections,
             'z3_unsafe_prevented': self.stats.episode_before_unsafe - self.stats.episode_after_unsafe,
             'z3_shield_effectiveness': ((self.stats.episode_before_unsafe - self.stats.episode_after_unsafe) / max(self.stats.episode_before_unsafe, 1)) * 100

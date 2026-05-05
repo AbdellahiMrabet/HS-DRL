@@ -76,11 +76,11 @@ RESPONSE_TIME_THRESHOLD_FULL = 950     # Full decision process
 
 POD_ARRIVAL_RATE = 11.0
 PATTERNS = [
-                    {'cpu': 0.5, 'mem': 384, 'desc': 'tiny-pod'},
-                    {'cpu': 0.60, 'mem': 512, 'desc': 'small-pod'},
-                    {'cpu': 0.7, 'mem': 768, 'desc': 'medium-pod'},
-                    {'cpu': 0.80, 'mem': 1280, 'desc': 'large-pod'},
-                    {'cpu': 0.90, 'mem': 1792, 'desc': 'large-pod'},
+                    {'cpu': 0.7, 'mem': 384, 'desc': 'tiny-pod'},
+                    {'cpu': 0.80, 'mem': 512, 'desc': 'small-pod'},
+                    {'cpu': 0.9, 'mem': 768, 'desc': 'medium-pod'},
+                    {'cpu': 1.0, 'mem': 1280, 'desc': 'large-pod'},
+                    {'cpu': 1.10, 'mem': 1792, 'desc': 'large-pod'},
             ]
 
 # ============================================================
@@ -91,7 +91,7 @@ REWARD_BASE = 2.0
 REWARD_EFFICIENCY_FACTOR = 5.0
 REWARD_LOAD_PENALTY_FACTOR = 3.0
 REWARD_FAILURE_PENALTY = -4.0
-REWARD_DELAY_PENALTY = -0.4
+REWARD_DELAY_PENALTY = -0.5
 REWARD_NODE_NOT_READY_PENALTY = -5.0
 REWARD_CONSTRAINT_PENALTY = -3.0
 
@@ -115,7 +115,7 @@ RT_VERY_SLOW = 300     # -3.0 penalty
 
 EPSILON_START = 1
 EPSILON_MIN = 0.01
-EPSILON_DECAY = 0.9997
+EPSILON_DECAY = 0.9995
 
 # ============================================================
 # ENHANCED NEURAL NETWORK CONFIGURATION
@@ -142,8 +142,8 @@ GAMMA_DQN = 0.95
 GAMMA_PPO = 0.99
 GAMMA_EPRS = 0.96
 GAE_LAMBDA = 0.95
-PPO_CLIP_EPSILON = 0.05
-PPO_ENTROPY_COEFF = 0.01
+PPO_CLIP_EPSILON = 0.13
+PPO_ENTROPY_COEFF = 0.015
 PPO_VALUE_COEFF = 0.5
 
 # ============================================================

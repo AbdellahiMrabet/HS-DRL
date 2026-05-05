@@ -128,8 +128,9 @@ class Z3ValidationTrainer:
                 'deployed_pods': self.tracker.deployed_pods,
                 'avg_available_nodes': self.tracker.episode_avg_available[-1] if self.tracker.episode_avg_available else 4,
                 'min_available_nodes': self.tracker.episode_min_available[-1] if self.tracker.episode_min_available else 4,
-                # Z3-based safety compliance rate (percentage of actions that were safe AFTER projection)
-                'safety_compliance_rate': z3_stats.get('z3_after_safety_rate', 100.0),
+                # Z3-based safety compliance rate (percentage of actions that were safe BEFORE projection)
+                'safety_compliance_rate': z3_stats.get('z3_before_safety_rate', 100.0),
+                'safety_compliance_rate_after': z3_stats.get('z3_after_safety_rate', 0.0),
                 # Number of unsafe actions prevented by the shield
                 'z3_unsafe_prevented': z3_stats.get('z3_unsafe_prevented', 0),
                 'epsilon': self._get_epsilon()

@@ -215,8 +215,6 @@ class ResultsPlotter:
                 count = 0
                 for e in episodes:
                     count += 1
-                    if name.lower() == 'hsdrl' and e.get('z3_before_safety_rate') is not None:
-                        total += e.get('z3_before_safety_rate') 
                     total += e.get('safety_compliance_rate')
                 print('safety rate for', total, name)
                 safety_rates.append(total / count)
@@ -280,7 +278,7 @@ class ResultsPlotter:
         self.plot_constraint_violations_comparison(data)
     
     def plot_constraint_violations_over_time(self, data):
-        """Plot smoothed cumulative constraint violations over episodes"""
+        """Plot cumulative constraint violations over episodes"""
         plt.figure(figsize=(12, 6))
         
         for name, episodes in data.items():
@@ -314,7 +312,7 @@ class ResultsPlotter:
         
         plt.xlabel('Episode', fontsize=12)
         plt.ylabel('Cumulative Constraint Violations', fontsize=12)
-        plt.title('Constraint Violations Over Time (Smoothed)', fontsize=14)
+        plt.title('Constraint Violations Over Time', fontsize=14)
         plt.legend(loc='best', fontsize=10)
         plt.grid(True, alpha=0.3)
         plt.tight_layout()
@@ -655,7 +653,7 @@ class ResultsPlotter:
             multiplier += 1
         
         ax.set_ylabel('Response Time (ms)', fontsize=12)
-        ax.set_title('Per-Node Response Time Comparison (Mean)', fontsize=14, fontweight='bold')
+        ax.set_title('Per-Node Response Time Comparison', fontsize=14, fontweight='bold')
         ax.set_xticks(x + width * (multiplier - 1) / 2)
         ax.set_xticklabels(all_nodes)
         ax.legend(loc='upper right', fontsize=11, framealpha=0.9)
@@ -740,7 +738,7 @@ class ResultsPlotter:
             multiplier += 1
         
         ax.set_ylabel('Memory Usage (%)', fontsize=12)
-        ax.set_title('Per-Node Memory Usage Comparison (Mean)', fontsize=14, fontweight='bold')
+        ax.set_title('Per-Node Memory Usage Comparison', fontsize=14, fontweight='bold')
         ax.set_xticks(x + width * (multiplier - 1) / 2)
         ax.set_xticklabels(all_nodes)
         ax.legend(loc='upper right', fontsize=11, framealpha=0.9)
@@ -825,7 +823,7 @@ class ResultsPlotter:
             multiplier += 1
         
         ax.set_ylabel('CPU Usage (%)', fontsize=12)
-        ax.set_title('Per-Node CPU Usage Comparison (Mean)', fontsize=14, fontweight='bold')
+        ax.set_title('Per-Node CPU Usage Comparison', fontsize=14, fontweight='bold')
         ax.set_xticks(x + width * (multiplier - 1) / 2)
         ax.set_xticklabels(all_nodes)
         ax.legend(loc='upper right', fontsize=11, framealpha=0.9)
@@ -902,26 +900,34 @@ class ResultsPlotter:
         print("  ✓ Saved: scalability_adaptation.png")
         
     def plot_per_node_response_time(self, data):
-        """Plot per-node response time - separate figure for each agent"""
+        """Plot per-node Response Time - separate figure for each agent"""
         for name, episodes in data.items():
             if not episodes:
+                print(f"  ⚠️ No episodes for {name}, skipping per_node_rt")
                 continue
             
-            # Find per-node response time keys
-            rt_keys = sorted([k for k in episodes[0].keys() if k.endswith('_avg_rt')])
-            if not rt_keys:
-                print(f"  ⚠️ No per-node response time data for {name}, skipping")
+            node_keys = []
+            possible_patterns = ['_avg_rt', '_rt_avg', '_rt_mean', '_response_time']
+            for pattern in possible_patterns:
+                keys = sorted([k for k in episodes[0].keys() if pattern in k.lower()])
+                if keys:
+                    node_keys = keys
+                    break
+            
+            if not node_keys:
+                print(f"  ⚠️ No per-node Response Time data for {name}, skipping")
                 continue
             
             plt.figure(figsize=(12, 7))
             ep_nums = [e['episode'] for e in episodes]
             
-            for key in rt_keys:
-                node_name = key.replace('_avg_rt', '').replace('_', '-').upper()
+            for key in node_keys:
+                node_label = self._get_node_label(key)  # Use helper method
+                
                 values = []
                 for e in episodes:
                     val = e.get(key)
-                    values.append(val if val is not None else 100.0)
+                    values.append(val if val is not None else 0)
                 
                 if len(values) > 5:
                     try:
@@ -929,9 +935,9 @@ class ResultsPlotter:
                     except (TypeError, ValueError):
                         continue
                     valid_eps = ep_nums[:len(smoothed)]
-                    plt.plot(valid_eps, smoothed, label=node_name, linewidth=2)
+                    plt.plot(valid_eps, smoothed, label=node_label, linewidth=2)
                 else:
-                    plt.plot(ep_nums, values, label=node_name, linewidth=2)
+                    plt.plot(ep_nums, values, label=node_label, linewidth=2)
             
             plt.xlabel('Episode', fontsize=12)
             plt.ylabel('Avg Response Time (ms)', fontsize=12)
@@ -943,9 +949,8 @@ class ResultsPlotter:
             output_path = os.path.join(self.plots_dir, f'{name}_per_node_rt.png')
             plt.savefig(output_path, dpi=150, bbox_inches='tight')
             plt.close()
-            print(f"  ✓ Saved: {name}_per_node_rt.png")
-    # ========== END NEW ==========
-    
+            print(f"  ✓ Saved: {name}_per_node_rt.png (found {len(node_keys)} nodes)")
+                
     def generate_all_plots(self):
         print("\n" + "="*60)
         print("GENERATING PLOTS FROM CSV FILES")
