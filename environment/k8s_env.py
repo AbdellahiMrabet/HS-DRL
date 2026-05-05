@@ -722,7 +722,11 @@ class K8sEnv(gym.Env):
                                 reward -= np.std(loads) * REWARD_LOAD_PENALTY_FACTOR
                         
                     else:
+<<<<<<< HEAD
                         reward = REWARD_CONSTRAINT_PENALTY
+=======
+                        reward += REWARD_CONSTRAINT_PENALTY
+>>>>>>> ea9f526bcada9f198c1e12dc2f6d52e210a68de4
                         
                     print(f"  ✅ Deployed to {node_name} | API: {api_response_time:.1f}ms | "
                           f"Memory Utilization: {target_node['mem_percent'] * 100:.2f} % | "
