@@ -9,18 +9,9 @@ import copy
 from collections import deque
 from typing import List, Dict, Tuple, Optional
 from config import (NUM_NODES, MAX_STEPS, POD_ARRIVAL_RATE, CPU_LIMIT, MEM_LIMIT,
-                    RESPONSE_TIME_THRESHOLD_FULL,
-                    REWARD_BASE, REWARD_EFFICIENCY_FACTOR, REWARD_LOAD_PENALTY_FACTOR,
-                    REWARD_FAILURE_PENALTY, REWARD_CONSTRAINT_PENALTY,
-                    REWARD_DELAY_PENALTY, REWARD_NODE_NOT_READY_PENALTY,
-                    RT_EXCELLENT, RT_GOOD, RT_SLOW, RT_VERY_SLOW,
-                    LD_EXCELLENT,      #+2
-                    LD_VERY_GOOD,      #+1      
-                    LD_GOOD,           #+0.5
-                    LD_VEAVY,          #-1
-                    LD_VERY_HEAVY,     #-2
-                    PATTERNS,     #-3
-                    generate_pod_ttl)
+                    RESPONSE_TIME_THRESHOLD_FULL, REWARD_BASE, REWARD_EFFICIENCY_FACTOR,
+                    REWARD_LOAD_PENALTY_FACTOR, REWARD_FAILURE_PENALTY, REWARD_CONSTRAINT_PENALTY,
+                    REWARD_DELAY_PENALTY, REWARD_NODE_NOT_READY_PENALTY, PATTERNS, generate_pod_ttl)
 from environment.pod_manager import PodDeploymentManager
 from utils.metrics_tracker import MetricsTracker
 
@@ -53,7 +44,7 @@ class K8sEnv(gym.Env):
         # Observation space: [node0_cpu_percent, node0_mem_percent, node0_rt, ... pod_cpu, pod_mem]
         state_dim = self.num_nodes * 3 + 2 + 1
         self.observation_space = spaces.Box(0, 1, (state_dim,), dtype=np.float32)
-        self.action_space = spaces.Discrete(self.num_nodes + 1)
+        self.action_space = spaces.Discrete(self.num_nodes)
         
         # Poisson arrival
         self.pod_arrival_rate = POD_ARRIVAL_RATE
@@ -228,8 +219,6 @@ class K8sEnv(gym.Env):
     def _get_fallback_nodes(self) -> List[Dict]:
         """Fallback nodes with realistic values"""
         fallback = [
-            {'name': 'minikube', 'cpu': 0.6, 'mem': 1074.0,
-             'cpu_percent': 0.07, 'mem_percent': 0.28, 'pods': 0, 'ready': True},
             {'name': 'minikube-m02', 'cpu': 0.4, 'mem': 512.0,
              'cpu_percent': 0.05, 'mem_percent': 0.13, 'pods': 0, 'ready': True},
             {'name': 'minikube-m03', 'cpu': 0.8, 'mem': 1024.0,
@@ -242,6 +231,7 @@ class K8sEnv(gym.Env):
     def _update_node_metrics(self):
         """Refresh node metrics from kubectl describe"""
         new_nodes = self._get_real_node_metrics()
+        #print('len new nodes', len(new_nodes))
         while len(new_nodes) < self.num_nodes:
             new_nodes.append({
                 'name': f'virtual-node-{len(new_nodes)}',
@@ -249,12 +239,12 @@ class K8sEnv(gym.Env):
                 'cpu_percent': 0.0, 'mem_percent': 0.0,
                 'pods': 0, 'ready': False
             })
-        self.nodes = new_nodes[:self.num_nodes]
+        self.nodes = new_nodes
         for node in self.nodes:
             node_name = node['name']
             if node_name not in self.latest_response_time:
-                self.latest_response_time[node_name] = 100.0
-                self.latest_response_time_normalized[node_name] = self._normalize_response_time(100.0)
+                self.latest_response_time[node_name] = 15.0
+                self.latest_response_time_normalized[node_name] = self._normalize_response_time(15.0)
             if node_name not in self.node_response_history:
                 self.node_response_history[node_name] = []
     
@@ -324,9 +314,9 @@ class K8sEnv(gym.Env):
         self.step_count = 0
         self.total_reward = 0
         self.available_nodes_history = []
-        self.latest_response_time = {n['name']: 100.0 for n in self.nodes}
+        self.latest_response_time = {n['name']: 15.0 for n in self.nodes}
         self.latest_response_time_normalized = \
-            {n['name']: self._normalize_response_time(100.0) for n in self.nodes}
+            {n['name']: self._normalize_response_time(15.0) for n in self.nodes}
         self.node_response_history = {n['name']:[] for n in self.nodes}
         # Safety projection tracking
         self.projection_active = False
@@ -363,16 +353,10 @@ class K8sEnv(gym.Env):
         return np.array(obs, dtype=np.float32)
     
     def _get_response_time_bonus(self, response_time_ms: float) -> float:
-        if response_time_ms < RT_EXCELLENT:
-            return 2.0
-        elif response_time_ms < RT_GOOD:
-            return 1.0
-        elif response_time_ms < RT_SLOW:
-            return 0.0
-        elif response_time_ms < RT_VERY_SLOW:
-            return -1.0
-        else:
-            return -3.0
+        rt = (30 - response_time_ms) / 50.0
+        rt = np.clip(rt, -0.4, 0.4)
+        
+        return rt
         
     def _get_load_bonus(self, load: float) -> float:
         # LD_EXCELLENT,      #+2
@@ -381,18 +365,7 @@ class K8sEnv(gym.Env):
         # LD_VEAVY,          #-1
         # LD_VERY_HEAVY,     #-2
         # LD_OVERLOADED,     #-3
-        if load < LD_EXCELLENT:
-            return 2.0
-        elif load < LD_VERY_GOOD:
-            return 1.0
-        elif load < LD_GOOD:
-            return 0.5
-        elif load < LD_VEAVY:
-            return -1.0
-        elif load < LD_VERY_HEAVY:
-            return -2
-        else:
-            return -3.0
+        return 0.5 - load
     
     def _update_latest_response_time(self, node_name: str, new_rt_ms: float):
         self.latest_response_time[node_name] = new_rt_ms
@@ -409,39 +382,96 @@ class K8sEnv(gym.Env):
     # ========================================================================
     # HIERARCHICAL SAFETY PROJECTION (HSP) - Key Differentiator
     # ========================================================================
-    
+
     def _safe_area(self):
         """
         Level 1: Find the nearest safe node for projection.
-        Returns node index if safe node exists, None otherwise.
+        Returns safe node array if a configuration exists, None otherwise.
         """
+        # 1. First Pass: Check all nodes for the original current_pod
         safe_nodes = []
-        for i, node in enumerate(self.nodes):
-            if not node.get('ready', True):
-                continue
-            
-            new_cpu = node['cpu'] + self.current_pod['cpu'] if self.current_pod else node['cpu']
-            new_mem = node['mem'] + self.current_pod['mem'] if self.current_pod else node['mem']
-            
-            if node['cpu'] > 0:
-                projected_cpu = node['cpu_percent'] * (new_cpu / node['cpu'])
-            else:
-                projected_cpu = 1.0 if new_cpu > 0 else 0.0
-            
-            if node['mem'] > 0:
-                projected_mem = node['mem_percent'] * (new_mem / node['mem'])
-            else:
-                projected_mem = 1.0 if new_mem > 0 else 0.0
-            
-            rt = self.latest_response_time.get(node['name'], 0)
-            
-            if (projected_cpu <= CPU_LIMIT and 
-                projected_mem <= MEM_LIMIT):
-                safe_nodes.append(i)
-        
+        if self.current_pod is not None:
+            for i, node in enumerate(self.nodes):
+                if not node.get('ready', True):
+                    continue
+                
+                new_cpu = node['cpu'] + self.current_pod['cpu']
+                new_mem = node['mem'] + self.current_pod['mem']
+                
+                if node['cpu'] > 0:
+                    projected_cpu = node['cpu_percent'] * (new_cpu / node['cpu'])
+                else:
+                    projected_cpu = 1.0 if new_cpu > 0 else 0.0
+                
+                if node['mem'] > 0:
+                    projected_mem = node['mem_percent'] * (new_mem / node['mem'])
+                else:
+                    projected_mem = 1.0 if new_mem > 0 else 0.0
+                
+                if (max(0.0, projected_cpu - CPU_LIMIT) + max(0.0, projected_mem - MEM_LIMIT)) <= 0.01:
+                    safe_nodes.append(i)
+
+        # If the current pod found safe nodes, we exit and return them immediately
         if safe_nodes:
             return np.array(safe_nodes)
+
+        # 2. Second Pass: If current_pod failed, check the remaining pods in the queue
+        if hasattr(self, 'pod_stack') and self.pod_stack:
+            # We search sequentially through the queue
+            for stack_idx, alternative_pod in enumerate(self.pod_stack):
+                fallback_safe_nodes = []
+                
+                for i, node in enumerate(self.nodes):
+                    if not node.get('ready', True):
+                        continue
+                    
+                    new_cpu = node['cpu'] + alternative_pod['cpu']
+                    new_mem = node['mem'] + alternative_pod['mem']
+                    
+                    if node['cpu'] > 0:
+                        projected_cpu = node['cpu_percent'] * (new_cpu / node['cpu'])
+                    else:
+                        projected_cpu = 1.0 if new_cpu > 0 else 0.0
+                    
+                    if node['mem'] > 0:
+                        projected_mem = node['mem_percent'] * (new_mem / node['mem'])
+                    else:
+                        projected_mem = 1.0 if new_mem > 0 else 0.0
+                    
+                    if (max(0.0, projected_cpu - CPU_LIMIT) + max(0.0, projected_mem - MEM_LIMIT)) <= 0.01:
+                        fallback_safe_nodes.append(i)
+                
+                # The moment an alternative pod matches a safe cluster node group:
+                if fallback_safe_nodes:
+                    # Remove it from its deep position in the queue
+                    del self.pod_stack[stack_idx]
+                    
+                    # Push the un-schedulable old current_pod to the very front of the deque
+                    if self.current_pod is not None:
+                        self.pod_stack.appendleft(self.current_pod)
+                    
+                    # Set the promoted pod as the new active current_pod
+                    self.current_pod = alternative_pod
+                    return np.array(fallback_safe_nodes)
+
+        # 3. Ultimate Fallback: No pods fit anywhere
         return None
+    
+    def _calcutate_projected_utilization(self, node: Dict, pod: Dict) -> Tuple[float, float]:
+        new_cpu = node['cpu'] + pod['cpu']
+        new_mem = node['mem'] + pod['mem']
+        
+        if node['cpu'] > 0:
+            projected_cpu = node['cpu_percent'] * (new_cpu / node['cpu'])
+        else:
+            projected_cpu = 1.0 if new_cpu > 0 else 0.0
+        
+        if node['mem'] > 0:
+            projected_mem = node['mem_percent'] * (new_mem / node['mem'])
+        else:
+            projected_mem = 1.0 if new_mem > 0 else 0.0
+        
+        return projected_cpu, projected_mem
     
     def _is_action_safe(self, action: int) -> Tuple[bool, str]:
         """
@@ -459,7 +489,6 @@ class K8sEnv(gym.Env):
         elif action == self.num_nodes:
             return True, "strategic_delay"
         
-        safe_nodes = self._safe_area()
         response_time_threshold_exceeded = ""
         cpu_limit_exceeded = ""
         mem_limit_exceeded = ""
@@ -475,40 +504,53 @@ class K8sEnv(gym.Env):
                 return False, f"node_{node_name}_not_ready"
             
             # Calculate projected utilization
-            new_cpu = target_node['cpu'] + self.current_pod['cpu'] if self.current_pod else target_node['cpu']
-            new_mem = target_node['mem'] + self.current_pod['mem'] if self.current_pod else target_node['mem']
-            
-            if target_node['cpu'] > 0:
-                projected_cpu_util = target_node['cpu_percent'] * (new_cpu / target_node['cpu'])
-            else:
-                projected_cpu_util = 1.0 if new_cpu > 0 else 0.0
-            
-            if target_node['mem'] > 0:
-                projected_mem_util = target_node['mem_percent'] * (new_mem / target_node['mem'])
-            else:
-                projected_mem_util = 1.0 if new_mem > 0 else 0.0
+            projected_cpu_util, projected_mem_util = \
+                self._calcutate_projected_utilization(target_node, \
+                    self.current_pod if self.current_pod else {'cpu': 0, 'mem': 0})
                 
             latest_rt = self.latest_response_time.get(node_name, 0)
             if latest_rt >= RESPONSE_TIME_THRESHOLD_FULL:
                 projection = True
-                response_time_threshold_exceeded = f"response_time_threshold_exceeded ({latest_rt:.1f}ms >= {RESPONSE_TIME_THRESHOLD_FULL}ms)"
+                response_time_threshold_exceeded = f"response_time_threshold_exceeded:{latest_rt}"
                 reason = response_time_threshold_exceeded
+                
+            if max(0.0, projected_cpu_util - CPU_LIMIT) + max(0.0, projected_mem_util - MEM_LIMIT) > 0.01:
+                
+                # The current_pod fails constraints. Let's find an alternative pod in the stack.
+                found_alternative = False
+                
+                for stack_idx, alternative_pod in enumerate(self.pod_stack):
+                    alt_projected_cpu, alt_projected_mem = \
+                        self._calcutate_projected_utilization(target_node, alternative_pod)
+                                        
+                    # Check if this alternative pod satisfies safety bounds
+                    if (max(0.0, alt_projected_cpu - CPU_LIMIT) + max(0.0, alt_projected_mem - MEM_LIMIT)) <= 0.01:
+                        # SUCCESS: We found a matching pod. 
+                        # 1. Remove it from its position in the deque
+                        del self.pod_stack[stack_idx]
+                        
+                        # 2. Push the blocked current_pod to the front of the queue so it is not lost
+                        if self.current_pod is not None:
+                            self.pod_stack.appendleft(self.current_pod)
+                        
+                        # 3. Promote the alternative pod to be the active current_pod
+                        self.current_pod = alternative_pod
+                        
+                        found_alternative = True
+                        break  # Exit the loop since we committed the state change
+                        
+                # If we looped through the entire stack and nobody fit, it's a hard safety violation
+                if not found_alternative:
+                    projection = True
+                        
             if projected_cpu_util > CPU_LIMIT:
-                projection = True
-                cpu_limit_exceeded = f"cpu_limit_exceeded ({projected_cpu_util*100:.1f}% > {CPU_LIMIT*100:.0f}%)"
+                cpu_limit_exceeded = f"cpu_limit_exceeded:{projected_cpu_util}"
                 reason = cpu_limit_exceeded
             
             if projected_mem_util > MEM_LIMIT:
-                projection = True
-                mem_limit_exceeded = f"mem_limit_exceeded ({projected_mem_util*100:.1f}% > {MEM_LIMIT*100:.0f}%)"
+                mem_limit_exceeded = f"mem_limit_exceeded:{projected_mem_util}"
                 reason = mem_limit_exceeded
                 
-            if response_time_threshold_exceeded == "":
-                reason += f"\n node response time {latest_rt:.1f}ms"
-            if cpu_limit_exceeded == "":
-                reason += f"\n node cpu utilization {projected_cpu_util*100:.1f}%"
-            if mem_limit_exceeded == "":
-                reason += f"\n node memory utilization {projected_mem_util*100:.1f}%"
             if projection:
                 
                 return False, reason
@@ -590,12 +632,19 @@ class K8sEnv(gym.Env):
         pod_cpu = self.current_pod['cpu']
         pod_mem = self.current_pod['mem']
         
-        best_action = self.num_nodes  # Default to delay
+        best_action = self.num_nodes # Default to delay
         best_reward = -float('inf')
         
         # Calculate current cluster load imbalance (same for all nodes)
-        current_loads = [n['cpu_percent'] for n in self.nodes if n.get('ready', True)]
-        current_imbalance = np.std(current_loads) if current_loads else 0.0
+        loads_cpu = [n['cpu_percent'] \
+                                for n in self.nodes if n.get('ready', True)]
+        loads_mem = [n['mem_percent'] \
+                                for n in self.nodes if n.get('ready', True)]
+        current_imbalance = 0.0
+        if loads_cpu:
+            current_imbalance += np.std(loads_cpu)
+        if loads_mem:
+            current_imbalance += np.std(loads_mem)
         
         for action, node in enumerate(self.nodes):
             # Skip nodes that are not ready
@@ -606,6 +655,7 @@ class K8sEnv(gym.Env):
             
             # Calculate projected memory utilization after deployment
             new_mem = node['mem'] + pod_mem
+            new_cpu = node['cpu'] + pod_cpu
             
             if node['mem'] > 0:
                 projected_mem_util = node['mem_percent'] * (new_mem / node['mem'])
@@ -614,13 +664,17 @@ class K8sEnv(gym.Env):
             
             projected_mem_util = min(projected_mem_util, 1.0)
             
-            # Calculate reward components
-            reward = REWARD_BASE + (projected_mem_util * REWARD_EFFICIENCY_FACTOR)
-            reward += self._get_load_bonus(projected_mem_util)
+            if node['cpu'] > 0:
+                projected_cpu_util = node['cpu_percent'] * (new_cpu / node['cpu'])
+            else:
+                projected_cpu_util = 1.0
             
-            # Response time bonus using current cached response time
-            rt = self.latest_response_time.get(node_name, 100.0)
-            reward += self._get_response_time_bonus(rt)
+            # Calculate reward components
+            reward = REWARD_BASE
+            bonus = self._get_load_bonus(projected_mem_util) \
+                    + self._get_load_bonus(projected_cpu_util) \
+                    + self._get_response_time_bonus(self.latest_response_time.get(node_name, 0))
+            reward += bonus * REWARD_EFFICIENCY_FACTOR
             
             # Load imbalance penalty (using CURRENT loads, NOT simulated)
             reward -= current_imbalance * REWARD_LOAD_PENALTY_FACTOR
@@ -674,10 +728,13 @@ class K8sEnv(gym.Env):
         is_delay_action = (safe_action == self.num_nodes)
         
         if is_delay_action:
+            queue_penalty = -0.1 * len(self.pod_stack) 
+            queue_penalty = np.clip(queue_penalty, -2.0, 0.0)
             success = False
-            reward = REWARD_DELAY_PENALTY
+            reward = REWARD_DELAY_PENALTY + queue_penalty
             self.pod_stack.append(self.current_pod)
-            print(f"  ⏸️ Delay action - penalty {reward}")
+            print(f"  ⏸️ Delay action - penalty {reward:.2f} (Queue: {len(self.pod_stack)})")
+            
         else:
             target_node = self.nodes[safe_action]
             node_name = target_node['name']
@@ -698,7 +755,7 @@ class K8sEnv(gym.Env):
                 deployed, _, api_response_time = self.pod_manager.deploy_nginx_pod(
                     node_name=node_name,
                     cpu_request=self.current_pod['cpu'],
-                    mem_request=int(self.current_pod['mem']),
+                    mem_request=float(self.current_pod['mem']),
                     custom_ttl=self.current_pod.get('ttl')
                 )
                 
@@ -710,23 +767,44 @@ class K8sEnv(gym.Env):
                     self._update_node_metrics()
                                         
                     updated_node = next((n for n in self.nodes if n['name'] == node_name), target_node)
+                    loads_cpu = [n['cpu_percent'] \
+                                for n in self.nodes if n.get('ready', True)]
+                    loads_mem = [n['mem_percent'] \
+                                for n in self.nodes if n.get('ready', True)]
                     if not projection_triggered:
                             # Calculate reward for the SELECTED node consistently
-                            reward = REWARD_BASE + (updated_node['mem_percent'] * REWARD_EFFICIENCY_FACTOR)
-                            reward += self._get_load_bonus(updated_node['mem_percent'])
-                            reward += self._get_response_time_bonus(api_response_time)
+                            reward = REWARD_BASE
+                            bonus = self._get_load_bonus(updated_node['mem_percent']) \
+                                + self._get_load_bonus(updated_node['cpu_percent']) \
+                                    + self._get_response_time_bonus(api_response_time)
+                            reward += bonus * REWARD_EFFICIENCY_FACTOR
                             
                             # Calculate load imbalance penalty
-                            loads = [n['cpu_percent'] for n in self.nodes if n.get('ready', True)]
-                            if loads:
-                                reward -= np.std(loads) * REWARD_LOAD_PENALTY_FACTOR
+                            
+                            if loads_cpu:
+                                reward -= np.std(loads_cpu) * REWARD_LOAD_PENALTY_FACTOR
+                                
+                            if loads_mem:
+                                reward -= np.std(loads_mem) * REWARD_LOAD_PENALTY_FACTOR
+                                reward = np.clip(reward, -10.0, 10.0)
                         
                     else:
-<<<<<<< HEAD
+                        _, reason = self._is_action_safe(action)
                         reward = REWARD_CONSTRAINT_PENALTY
-=======
-                        reward += REWARD_CONSTRAINT_PENALTY
->>>>>>> ea9f526bcada9f198c1e12dc2f6d52e210a68de4
+                        
+                        bonus = 0.0
+                            
+                        if "cpu_limit_exceeded" in reason:
+                            bonus += self._get_load_bonus(float(reason.split(":")[1]))
+                        elif "mem_limit_exceeded" in reason:
+                            bonus += self._get_load_bonus(float(reason.split(":")[1]))
+                        elif "response_time_threshold_exceeded" in reason:
+                            bonus += self._get_response_time_bonus(float(reason.split(":")[1]))
+                        else:
+                            bonus += 0.0
+                            
+                        reward += bonus * REWARD_EFFICIENCY_FACTOR
+                        reward = np.clip(reward, -10.0, 10.0)
                         
                     print(f"  ✅ Deployed to {node_name} | API: {api_response_time:.1f}ms | "
                           f"Memory Utilization: {target_node['mem_percent'] * 100:.2f} % | "
